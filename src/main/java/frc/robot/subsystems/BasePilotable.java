@@ -18,12 +18,14 @@ import com.pathplanner.lib.util.swerve.SwerveSetpoint;
 import com.pathplanner.lib.util.swerve.SwerveSetpointGenerator;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
+import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
@@ -33,6 +35,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 import frc.robot.LimelightHelpers;
+import frc.robot.Constants.Branche;
 import frc.robot.Constants.GamePositions;
 
 public class BasePilotable extends SubsystemBase {
@@ -49,6 +52,9 @@ public class BasePilotable extends SubsystemBase {
 	// Le gyroscope
 	private Pigeon2 gyro = new Pigeon2(0);
 
+
+	private ProfiledPIDController pidX = new ProfiledPIDController(10, 0, 0, 
+		new TrapezoidProfile.Constraints(1.0, 0.1));
 
 	/* Setpoint genetator est une fonction de PathPlanner qui permet de valider
 	 * si les vitesses demandées en téléop respectent les contraintes mécaniques
@@ -131,6 +137,8 @@ public class BasePilotable extends SubsystemBase {
 		SmartDashboard.putNumber(
 				"Pose Estimator Theta : ",
 				getPose().getRotation().getDegrees());
+
+		SmartDashboard.putBoolean("isProche", isProche(Branche.A, 1.0));
 
 		SmartDashboard.putNumber("match time",DriverStation.getMatchTime());
 		//Fonctions limelight
@@ -360,7 +368,7 @@ public class BasePilotable extends SubsystemBase {
 	public Command followPath(Pose2d cible) {
 
 		PathConstraints constraints = new PathConstraints(
-				2.0,
+				1.0,
 				1.00,
 				Math.toRadians(360),
 				Math.toRadians(360)); 
@@ -375,39 +383,6 @@ public class BasePilotable extends SubsystemBase {
 	public boolean isProche(Pose2d cible, double distanceMin) {
 		return getPose().getTranslation().getDistance(cible.getTranslation()) < distanceMin;
 	}
-
-	public boolean isProcheRecif() {//Pour la monter
-		return isProche(
-				isRedAlliance() ? GamePositions.RedCentreRecif : GamePositions.BlueCentreRecif,
-				2.5);
-	}
-
-	public boolean isLoinRecif() {//Pour la descente
-		return !isProche(
-				isRedAlliance() ? GamePositions.RedCentreRecif : GamePositions.BlueCentreRecif,
-				2);
-	}
-
-	public boolean isProcheProcesseur() {
-		return isProche(
-				isRedAlliance() ? GamePositions.RedProcesseur : GamePositions.BlueProcesseur,
-				2);
-	}
-
-	public boolean isProcheStationCage() {
-		return isProche(GamePositions.RedCoralStationCage, 1.5) || isProche(GamePositions.BlueCoralStationCageCentre,1.5);
-	}
-
-	public boolean isProcheStationProcesseur() {
-		return isProche(GamePositions.RedCoralStationProc, 1.5) || isProche(GamePositions.BlueCoralStationProcCentre,1.5);
-
-	}
-
-	public boolean isStationCage() {
-		return isRedAlliance() ^ getPose().getY() >= 4;
-	}
-
-
 	//Vérifier l'alliance. Il faut le caller en tout temps car l'alliance est initialiser après le boot du robot
 	public boolean isRedAlliance() {
 		Optional<Alliance> ally = DriverStation.getAlliance();
@@ -419,4 +394,23 @@ public class BasePilotable extends SubsystemBase {
 		}
 	}
 
+	public void setPID(Pose2d cible){
+		Pose2d current = getPose();
+		double vitesseXPid = pidX.calculate(current.getX(), cible.getX());
+		SmartDashboard.putNumber("vitesse x PID", vitesseXPid);
+
+		ChassisSpeeds chassisSpeeds = new ChassisSpeeds(vitesseXPid, 0, 0);
+		
+		conduireChassis(chassisSpeeds);
+	}
+
+	public boolean atcible(){
+		return pidX.atGoal();
+	}
+
+	public void resetPID(){
+		Pose2d current = getPose();
+		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
+		pidX.reset(current.getX(),chassisSpeeds.vxMetersPerSecond);
+	}
 }
