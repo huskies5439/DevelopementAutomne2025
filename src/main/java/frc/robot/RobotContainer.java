@@ -65,7 +65,7 @@ public class RobotContainer {
 
         private void configureButtonBindings() {
                 manette.a().whileTrue(new GoToFancy(basePilotable,
-                                Branche.A.plus(new Transform2d(-0.5, 0.0, Rotation2d.kZero))));
+                                Branche.A.plus(new Transform2d(0.0, 0.0, Rotation2d.kZero))));
         }
 
         public Command getAutonomousCommand() {

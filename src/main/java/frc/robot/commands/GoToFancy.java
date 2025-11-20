@@ -22,12 +22,13 @@ public class GoToFancy extends SequentialCommandGroup {
     // Add your commands in the addCommands() call, e.g.
     // addCommands(new FooCommand(), new BarCommand());
     addCommands(
-      new ParallelRaceGroup(
-        basePilotable.followPath(pose2d),
-        new WaitUntilCommand(()->basePilotable.isProche(pose2d, 1.0))
-      ),
-      new DeplacementPID(basePilotable, pose2d)
-        
-        );
+        new ParallelRaceGroup(
+            Commands.defer(() -> {
+              return basePilotable.followPath(pose2d);
+            }, getRequirements()),
+            new WaitUntilCommand(() -> basePilotable.isProche(pose2d, 1.0))),
+        new DeplacementPID(basePilotable, pose2d)
+
+    );
   }
 }

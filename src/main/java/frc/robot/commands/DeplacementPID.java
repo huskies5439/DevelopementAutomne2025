@@ -36,6 +36,6 @@ public class DeplacementPID extends Command {
 
   @Override
   public boolean isFinished() {
-    return basePilotable.atcible(); 
+    return basePilotable.isProche(pose2d, 0.05);
   }
 }

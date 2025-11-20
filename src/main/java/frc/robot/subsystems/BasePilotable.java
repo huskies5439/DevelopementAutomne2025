@@ -4,6 +4,9 @@
 
 package frc.robot.subsystems;
 
+import static edu.wpi.first.units.Units.MetersPerSecond;
+
+import java.util.List;
 import java.util.Optional;
 
 import com.ctre.phoenix6.hardware.Pigeon2;
@@ -11,8 +14,12 @@ import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.config.PIDConstants;
 import com.pathplanner.lib.config.RobotConfig;
 import com.pathplanner.lib.controllers.PPHolonomicDriveController;
+import com.pathplanner.lib.path.GoalEndState;
+import com.pathplanner.lib.path.IdealStartingState;
 import com.pathplanner.lib.path.PathConstraints;
-
+import com.pathplanner.lib.path.PathPlannerPath;
+import com.pathplanner.lib.path.Waypoint;
+import com.pathplanner.lib.trajectory.PathPlannerTrajectoryState;
 import com.pathplanner.lib.util.DriveFeedforwards;
 import com.pathplanner.lib.util.swerve.SwerveSetpoint;
 import com.pathplanner.lib.util.swerve.SwerveSetpointGenerator;
@@ -22,11 +29,13 @@ import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
 import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
@@ -52,17 +61,24 @@ public class BasePilotable extends SubsystemBase {
 	// Le gyroscope
 	private Pigeon2 gyro = new Pigeon2(0);
 
+	private PPHolonomicDriveController ppHolonomicDriveController = new PPHolonomicDriveController(
+			new PIDConstants(2, 0, 0), // valeur stupide de 12 a Montréal ; ne plus faire l'Erreur S.V.P
+			new PIDConstants(10, 0, 1));
 
-	private ProfiledPIDController pidX = new ProfiledPIDController(10, 0, 0, 
-		new TrapezoidProfile.Constraints(1.0, 0.1));
+	private ProfiledPIDController pidX = new ProfiledPIDController(10, 0, 0,
+			new TrapezoidProfile.Constraints(1.0, 0.1));
 
-	/* Setpoint genetator est une fonction de PathPlanner qui permet de valider
+	/*
+	 * Setpoint genetator est une fonction de PathPlanner qui permet de valider
 	 * si les vitesses demandées en téléop respectent les contraintes mécaniques
 	 * du robot telles que définies dans les App Settings de PathPlanner
-	 * C'est expérimental en 2025, donc valider les changements pour l'an prochain */
-	
+	 * C'est expérimental en 2025, donc valider les changements pour l'an prochain
+	 */
+
 	private final SwerveSetpointGenerator setpointGenerator;
-	private SwerveSetpoint previousSetpoint;
+	private SwerveSetpoint previousSetpoint; 
+
+	private Pose2d poseActuelle; 
 
 	// Initialisation PoseEstimator
 	SwerveDrivePoseEstimator poseEstimator = new SwerveDrivePoseEstimator(
@@ -74,7 +90,6 @@ public class BasePilotable extends SubsystemBase {
 			Pose2d.kZero);
 
 	Field2d field2d = new Field2d();
-
 
 	public BasePilotable() {
 
@@ -93,20 +108,19 @@ public class BasePilotable extends SubsystemBase {
 			e.printStackTrace();
 		}
 		// configuration Pathplanner
-		//Voir la documentation, ça va peut-être changer en 2026
+		// Voir la documentation, ça va peut-être changer en 2026
+
 		AutoBuilder.configure(
 				this::getPose,
 				this::resetOdometry,
 				this::getChassisSpeeds,
 				(speeds, feedforward) -> conduireChassis(speeds),
-				new PPHolonomicDriveController(
-						new PIDConstants(2, 0, 0), // valeur stupide de 12 a Montréal ; ne plus faire l'Erreur S.V.P
-						new PIDConstants(5, 0, 0)), 
+				ppHolonomicDriveController,
 				robotConfig,
 				this::isRedAlliance,
 				this);
-		
-		//Configuration Setpoint Generator
+
+		// Configuration Setpoint Generator
 		setpointGenerator = new SwerveSetpointGenerator(
 				robotConfig,
 				Units.rotationsToRadians(3.94)// Valeur selon la freespeed du neo 550
@@ -124,11 +138,11 @@ public class BasePilotable extends SubsystemBase {
 				new SwerveModulePosition[] { avantGauche.getPosition(),
 						avantDroite.getPosition(), arriereGauche.getPosition(), arriereDroite.getPosition() });
 
-		//Update du Field2d
+		// Update du Field2d
 		field2d.setRobotPose(getPose());
 		SmartDashboard.putData("Field", field2d);
 
-		//SmartDashboard.putBoolean("redalliance", isRedAlliance());
+		// SmartDashboard.putBoolean("redalliance", isRedAlliance());
 
 		SmartDashboard.putNumber("Angle Gyro", getAngle());
 
@@ -140,21 +154,25 @@ public class BasePilotable extends SubsystemBase {
 
 		SmartDashboard.putBoolean("isProche", isProche(Branche.A, 1.0));
 
-		SmartDashboard.putNumber("match time",DriverStation.getMatchTime());
-		//Fonctions limelight
-		//Première année que ça fonctionne comme ça directement dans le sous-système de BasePilotable
-		//Valider que cela ne change pas l'an prochain
+		SmartDashboard.putNumber("match time", DriverStation.getMatchTime());
+		// Fonctions limelight
+		// Première année que ça fonctionne comme ça directement dans le sous-système de
+		// BasePilotable
+		// Valider que cela ne change pas l'an prochain
 		setLimelightRobotOrientation();
 		addVisionPosition("limelight-haut");
 		addVisionPosition("limelight-bas");
+
+		SmartDashboard.putString("translation",poseEstimator.getEstimatedPosition().toString());
+		poseActuelle = getPose(); 
 	}
 
 	/// ////// MÉTHODE DONNANT DES CONSIGNES À CHAQUE MODULE
 
 	public void setModuleStates(SwerveModuleState[] desiredStates) {
-		//La librairie de REV utilise la fonction .desaturate ici.
-		//Attention, ils utilisent le maxChassisSpeed au lieu du maxVitesseModule
-		//SetPointGenerator ôte la nécessiter de désaturer
+		// La librairie de REV utilise la fonction .desaturate ici.
+		// Attention, ils utilisent le maxChassisSpeed au lieu du maxVitesseModule
+		// SetPointGenerator ôte la nécessiter de désaturer
 		avantGauche.setDesiredState(desiredStates[0]);
 		avantDroite.setDesiredState(desiredStates[1]);
 		arriereGauche.setDesiredState(desiredStates[2]);
@@ -169,12 +187,13 @@ public class BasePilotable extends SubsystemBase {
 
 	/// ///// TÉLÉOP
 
-	public void resetSetpoint(){
-		//Il faut le caller à chaque fois que l'on retourne à la commande de conduite téléop
-		//Sinon les premiers mouvements du robot dépendent de la conduite avant la commande de pathfinding
+	public void resetSetpoint() {
+		// Il faut le caller à chaque fois que l'on retourne à la commande de conduite
+		// téléop
+		// Sinon les premiers mouvements du robot dépendent de la conduite avant la
+		// commande de pathfinding
 		previousSetpoint = new SwerveSetpoint(getChassisSpeeds(), getModuleStates(), DriveFeedforwards.zeros(4));
 	}
-	
 
 	public void conduire(
 			double xSpeed,
@@ -208,21 +227,21 @@ public class BasePilotable extends SubsystemBase {
 			invert = -1; // on inverse le déplacement du robot
 		}
 
-		//Ajuster pour field relative
-		//L'inversion selon l'alliance seulement nécessaire en x et y en field oriented
-		//Façon vraiment plus clean de gérer ça qu'en 2024
-		ChassisSpeeds speeds = fieldRelative ? 
-				ChassisSpeeds.fromFieldRelativeSpeeds(xSpeedDelivered * invert, ySpeedDelivered * invert,
-				rotDelivered, getPose().getRotation())
+		// Ajuster pour field relative
+		// L'inversion selon l'alliance seulement nécessaire en x et y en field oriented
+		// Façon vraiment plus clean de gérer ça qu'en 2024
+		ChassisSpeeds speeds = fieldRelative
+				? ChassisSpeeds.fromFieldRelativeSpeeds(xSpeedDelivered * invert, ySpeedDelivered * invert,
+						rotDelivered, getPose().getRotation())
 				: new ChassisSpeeds(xSpeedDelivered, ySpeedDelivered, rotDelivered);
 
-		//Actualiser le setpoint generator pour corriger le mouvement si nécessaire
+		// Actualiser le setpoint generator pour corriger le mouvement si nécessaire
 		previousSetpoint = setpointGenerator.generateSetpoint(
 				previousSetpoint,
 				speeds,
 				0.02);
 
-		//Envoyer les consignes aux 4 modules
+		// Envoyer les consignes aux 4 modules
 		setModuleStates(previousSetpoint.moduleStates());
 	}
 
@@ -360,30 +379,60 @@ public class BasePilotable extends SubsystemBase {
 		setModuleStates(swerveModuleState);
 	}
 
-
-
-
 	/////////////// On the fly
 
 	public Command followPath(Pose2d cible) {
 
 		PathConstraints constraints = new PathConstraints(
-				1.0,
-				1.00,
+				2.0,
+				1.50,
 				Math.toRadians(360),
-				Math.toRadians(360)); 
-		//Hyper Important : Il faut mettre la méthode "flipped" pour ajuster pour RedAlliance
-		//Fonction pas mentionnée dans la doc !!
-		return AutoBuilder.pathfindToPoseFlipped(cible, constraints, 0.0);
+				Math.toRadians(360));
+		// Hyper Important : Il faut mettre la méthode "flipped" pour ajuster pour
+		// RedAlliance
+		// Fonction pas mentionnée dans la doc !!
+		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
+		Rotation2d rotation2d = getRotation2d(chassisSpeeds, cible);
+		Translation2d translation2d = poseActuelle.getTranslation();
+		List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
+				new Pose2d(translation2d, rotation2d), cible);
+
+		PathPlannerPath path = new PathPlannerPath(
+				waypoints,
+				constraints,
+				new IdealStartingState(getVitesseRobot(), rotation2d),
+				new GoalEndState(0.0, cible.getRotation()));
+
+		return AutoBuilder.followPath(path);
+		 //return AutoBuilder.pathfindToPoseFlipped(cible, constraints);
 
 	}
 
-	//////////////isProche permet de vérifier la position du robot
-	/// Seule fois où on a besoin des Pose2D de l'alliance rouge car on ne passe pas par PathPlanner
+	private Rotation2d getRotation2d(ChassisSpeeds chassisSpeeds, Pose2d cible) {
+
+		if (getVitesseRobot().in(MetersPerSecond) < 0.25) {
+			var diff = cible.minus(getPose()).getTranslation();
+			return (diff.getNorm() < 0.01) ? cible.getRotation() : diff.getAngle();
+		}
+		Rotation2d rotation2d = new Rotation2d(chassisSpeeds.vxMetersPerSecond, chassisSpeeds.vyMetersPerSecond);
+		return rotation2d;
+	}
+
+	public LinearVelocity getVitesseRobot() {
+		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
+		return MetersPerSecond
+				.of(new Translation2d(chassisSpeeds.vxMetersPerSecond, chassisSpeeds.vyMetersPerSecond).getNorm());
+	}
+
+	////////////// isProche permet de vérifier la position du robot
+	/// Seule fois où on a besoin des Pose2D de l'alliance rouge car on ne passe pas
+	////////////// par PathPlanner
 	public boolean isProche(Pose2d cible, double distanceMin) {
 		return getPose().getTranslation().getDistance(cible.getTranslation()) < distanceMin;
 	}
-	//Vérifier l'alliance. Il faut le caller en tout temps car l'alliance est initialiser après le boot du robot
+
+	// Vérifier l'alliance. Il faut le caller en tout temps car l'alliance est
+	// initialiser après le boot du robot
 	public boolean isRedAlliance() {
 		Optional<Alliance> ally = DriverStation.getAlliance();
 		if (ally.isPresent()) {
@@ -394,23 +443,26 @@ public class BasePilotable extends SubsystemBase {
 		}
 	}
 
-	public void setPID(Pose2d cible){
+	public void setPID(Pose2d cible) {
 		Pose2d current = getPose();
-		double vitesseXPid = pidX.calculate(current.getX(), cible.getX());
-		SmartDashboard.putNumber("vitesse x PID", vitesseXPid);
+		PathPlannerTrajectoryState stateCible = new PathPlannerTrajectoryState();
+		stateCible.pose = cible;
 
-		ChassisSpeeds chassisSpeeds = new ChassisSpeeds(vitesseXPid, 0, 0);
-		
+		ChassisSpeeds chassisSpeeds = ppHolonomicDriveController.calculateRobotRelativeSpeeds(current, stateCible);
+
+		SmartDashboard.putNumber("vitesse x", chassisSpeeds.vxMetersPerSecond);
+		SmartDashboard.putNumber("vitesse y", chassisSpeeds.vyMetersPerSecond);
+
 		conduireChassis(chassisSpeeds);
 	}
 
-	public boolean atcible(){
+	public boolean atcible() {
 		return pidX.atGoal();
 	}
 
-	public void resetPID(){
+	public void resetPID() {
 		Pose2d current = getPose();
 		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
-		pidX.reset(current.getX(),chassisSpeeds.vxMetersPerSecond);
+		pidX.reset(current.getX(), chassisSpeeds.vxMetersPerSecond);
 	}
 }
