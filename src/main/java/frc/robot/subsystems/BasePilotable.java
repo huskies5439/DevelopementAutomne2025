@@ -25,7 +25,6 @@ import com.pathplanner.lib.util.swerve.SwerveSetpoint;
 import com.pathplanner.lib.util.swerve.SwerveSetpointGenerator;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
-import edu.wpi.first.math.controller.ProfiledPIDController;
 import edu.wpi.first.math.estimator.SwerveDrivePoseEstimator;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -33,7 +32,6 @@ import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.kinematics.SwerveModulePosition;
 import edu.wpi.first.math.kinematics.SwerveModuleState;
-import edu.wpi.first.math.trajectory.TrapezoidProfile;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.LinearVelocity;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -45,7 +43,6 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 import frc.robot.LimelightHelpers;
 import frc.robot.Constants.Branche;
-import frc.robot.Constants.GamePositions;
 
 public class BasePilotable extends SubsystemBase {
 
@@ -65,9 +62,6 @@ public class BasePilotable extends SubsystemBase {
 			new PIDConstants(2, 0, 0), // valeur stupide de 12 a Montréal ; ne plus faire l'Erreur S.V.P
 			new PIDConstants(10, 0, 1));
 
-	private ProfiledPIDController pidX = new ProfiledPIDController(10, 0, 0,
-			new TrapezoidProfile.Constraints(1.0, 0.1));
-
 	/*
 	 * Setpoint genetator est une fonction de PathPlanner qui permet de valider
 	 * si les vitesses demandées en téléop respectent les contraintes mécaniques
@@ -76,9 +70,7 @@ public class BasePilotable extends SubsystemBase {
 	 */
 
 	private final SwerveSetpointGenerator setpointGenerator;
-	private SwerveSetpoint previousSetpoint; 
-
-	private Pose2d poseActuelle; 
+	private SwerveSetpoint previousSetpoint;
 
 	// Initialisation PoseEstimator
 	SwerveDrivePoseEstimator poseEstimator = new SwerveDrivePoseEstimator(
@@ -164,7 +156,6 @@ public class BasePilotable extends SubsystemBase {
 		addVisionPosition("limelight-bas");
 
 		SmartDashboard.putString("translation",poseEstimator.getEstimatedPosition().toString());
-		poseActuelle = getPose(); 
 	}
 
 	/// ////// MÉTHODE DONNANT DES CONSIGNES À CHAQUE MODULE
@@ -393,10 +384,11 @@ public class BasePilotable extends SubsystemBase {
 		// Fonction pas mentionnée dans la doc !!
 		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
 		Rotation2d rotation2d = getRotation2d(chassisSpeeds, cible);
-		Translation2d translation2d = poseActuelle.getTranslation();
+		Translation2d translation2d = getPose().getTranslation();
 		List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
 				new Pose2d(translation2d, rotation2d), cible);
 
+        // Utilise le déplacement et la vitesse actuelle pour le début du path
 		PathPlannerPath path = new PathPlannerPath(
 				waypoints,
 				constraints,
@@ -404,21 +396,28 @@ public class BasePilotable extends SubsystemBase {
 				new GoalEndState(0.0, cible.getRotation()));
 
 		return AutoBuilder.followPath(path);
-		 //return AutoBuilder.pathfindToPoseFlipped(cible, constraints);
+//		 return AutoBuilder.pathfindToPoseFlipped(cible, constraints);
 
 	}
 
 	private Rotation2d getRotation2d(ChassisSpeeds chassisSpeeds, Pose2d cible) {
 
+        //0.25 étant une protection anti-division par 0
 		if (getVitesseRobot().in(MetersPerSecond) < 0.25) {
-			var diff = cible.minus(getPose()).getTranslation();
-			return (diff.getNorm() < 0.01) ? cible.getRotation() : diff.getAngle();
-		}
-		Rotation2d rotation2d = new Rotation2d(chassisSpeeds.vxMetersPerSecond, chassisSpeeds.vyMetersPerSecond);
-		return rotation2d;
+            return getRotationSelonDistance(cible);
+        }
+
+        return new Rotation2d(chassisSpeeds.vxMetersPerSecond, chassisSpeeds.vyMetersPerSecond);
 	}
 
-	public LinearVelocity getVitesseRobot() {
+    private Rotation2d getRotationSelonDistance(Pose2d cible) {
+        //Mets le robot a 0,0 pour trouver la distance entre le robot et la cible
+        Translation2d distance = cible.minus(getPose()).getTranslation();
+        //Si le robot est proche, on pointe vers la cible ou dans le sens de la cible
+        return (distance.getNorm() < 0.10) ? cible.getRotation() : distance.getAngle();
+    }
+
+    private LinearVelocity getVitesseRobot() {
 		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
 		return MetersPerSecond
 				.of(new Translation2d(chassisSpeeds.vxMetersPerSecond, chassisSpeeds.vyMetersPerSecond).getNorm());
@@ -445,24 +444,12 @@ public class BasePilotable extends SubsystemBase {
 
 	public void setPID(Pose2d cible) {
 		Pose2d current = getPose();
+        //Créer une cible PathPlanner et mettre la cible comme pose
 		PathPlannerTrajectoryState stateCible = new PathPlannerTrajectoryState();
 		stateCible.pose = cible;
 
+        //Nous utilisons le PID que PathPlanner utilise pour ses paths
 		ChassisSpeeds chassisSpeeds = ppHolonomicDriveController.calculateRobotRelativeSpeeds(current, stateCible);
-
-		SmartDashboard.putNumber("vitesse x", chassisSpeeds.vxMetersPerSecond);
-		SmartDashboard.putNumber("vitesse y", chassisSpeeds.vyMetersPerSecond);
-
 		conduireChassis(chassisSpeeds);
-	}
-
-	public boolean atcible() {
-		return pidX.atGoal();
-	}
-
-	public void resetPID() {
-		Pose2d current = getPose();
-		ChassisSpeeds chassisSpeeds = getChassisSpeeds();
-		pidX.reset(current.getX(), chassisSpeeds.vxMetersPerSecond);
 	}
 }

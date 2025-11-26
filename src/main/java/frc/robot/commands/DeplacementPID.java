@@ -20,7 +20,7 @@ public class DeplacementPID extends Command {
 
   @Override
   public void initialize() {
-    basePilotable.resetPID();
+      //On as rien a faire ici
   }
 
   @Override
