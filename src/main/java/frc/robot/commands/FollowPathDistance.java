@@ -9,15 +9,18 @@ import java.util.Set;
 
 public class FollowPathDistance extends ParallelRaceGroup {
     public FollowPathDistance(BasePilotable basePilotable, Pose2d pose2d) {
-
         addRequirements(basePilotable);
         addCommands(
                 Commands.defer(
-                        () -> basePilotable.followPath(pose2d), Set.of()),
-                new WaitUntilCommand(() -> basePilotable.isProche(pose2d, 1.0)));
+                        () -> {
+                            basePilotable.resetPID();
+                            return basePilotable.followPath(pose2d);
+                        },
+                        Set.of()),
+                new WaitUntilCommand(() -> basePilotable.isProche(pose2d, 1.5)));
     }
     /*
-    * Les méthodes sont effectuées au démarrage du robot, le defer fait en sorte qu'il appèle la fonction quand il en a besoin.
-    * Dans followPath, nous utilisons la pose actuelle du robot pour faire le path (sinon restait à 0,0).
-    */
+     * Les méthodes sont effectuées au démarrage du robot, le defer fait en sorte qu'il appèle la fonction quand il en a besoin.
+     * Dans followPath, nous utilisons la pose actuelle du robot pour faire le path (sinon restait à 0,0).
+     */
 }
