@@ -18,6 +18,7 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.button.CommandGenericHID;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
@@ -66,6 +67,8 @@ public class RobotContainer {
         private void configureButtonBindings() {
                 manette.a().whileTrue(new GoToFancy(basePilotable,
                                 Branche.A.plus(new Transform2d(0.0, 0.0, Rotation2d.kZero))));
+
+                manette.b().onTrue(Commands.runOnce(basePilotable::resetGyro));
         }
 
         public Command getAutonomousCommand() {

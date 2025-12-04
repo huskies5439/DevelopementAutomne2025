@@ -7,6 +7,8 @@ import edu.wpi.first.wpilibj2.command.WaitUntilCommand;
 import frc.robot.subsystems.BasePilotable;
 import java.util.Set;
 
+import com.pathplanner.lib.path.PathPlannerPath;
+
 public class FollowPathDistance extends ParallelRaceGroup {
     public FollowPathDistance(BasePilotable basePilotable, Pose2d pose2d) {
         addRequirements(basePilotable);
@@ -14,7 +16,8 @@ public class FollowPathDistance extends ParallelRaceGroup {
                 Commands.defer(
                         () -> {
                             basePilotable.resetPID();
-                            return basePilotable.followPath(pose2d);
+                            PathPlannerPath path = basePilotable.genererPath(pose2d); 
+                            return basePilotable.followPath(path);
                         },
                         Set.of()),
                 new WaitUntilCommand(() -> basePilotable.isProche(pose2d, 1.5)));

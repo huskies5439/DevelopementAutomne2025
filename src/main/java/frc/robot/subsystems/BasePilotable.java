@@ -77,10 +77,10 @@ public class BasePilotable extends SubsystemBase {
             Constants.kDriveKinematics,
             Rotation2d.fromDegrees(getAngle()),
             new SwerveModulePosition[] {
-                avantGauche.getPosition(),
-                avantDroite.getPosition(),
-                arriereGauche.getPosition(),
-                arriereDroite.getPosition()
+                    avantGauche.getPosition(),
+                    avantDroite.getPosition(),
+                    arriereGauche.getPosition(),
+                    arriereDroite.getPosition()
             },
             Pose2d.kZero);
 
@@ -118,7 +118,7 @@ public class BasePilotable extends SubsystemBase {
         // Configuration Setpoint Generator
         setpointGenerator = new SwerveSetpointGenerator(
                 robotConfig, Units.rotationsToRadians(3.94) // Valeur selon la freespeed du neo 550
-                );
+        );
 
         resetSetpoint();
     }
@@ -127,10 +127,10 @@ public class BasePilotable extends SubsystemBase {
     public void periodic() {
         // Update du Pose Estimator
         poseEstimator.update(Rotation2d.fromDegrees(getAngle()), new SwerveModulePosition[] {
-            avantGauche.getPosition(),
-            avantDroite.getPosition(),
-            arriereGauche.getPosition(),
-            arriereDroite.getPosition()
+                avantGauche.getPosition(),
+                avantDroite.getPosition(),
+                arriereGauche.getPosition(),
+                arriereDroite.getPosition()
         });
 
         // Update du Field2d
@@ -175,7 +175,7 @@ public class BasePilotable extends SubsystemBase {
 
     public SwerveModuleState[] getModuleStates() {
         return new SwerveModuleState[] {
-            avantGauche.getState(), avantDroite.getState(), arriereGauche.getState(), arriereDroite.getState()
+                avantGauche.getState(), avantDroite.getState(), arriereGauche.getState(), arriereDroite.getState()
         };
     }
 
@@ -255,10 +255,10 @@ public class BasePilotable extends SubsystemBase {
         poseEstimator.resetPosition(
                 Rotation2d.fromDegrees(getAngle()),
                 new SwerveModulePosition[] {
-                    avantGauche.getPosition(),
-                    avantDroite.getPosition(),
-                    arriereGauche.getPosition(),
-                    arriereDroite.getPosition()
+                        avantGauche.getPosition(),
+                        avantDroite.getPosition(),
+                        arriereGauche.getPosition(),
+                        arriereDroite.getPosition()
                 },
                 pose);
     }
@@ -349,9 +349,16 @@ public class BasePilotable extends SubsystemBase {
 
     /////////////// On the fly
 
-    public Command followPath(Pose2d cible) {
+    public Command followPath(PathPlannerPath path) {
 
-        PathConstraints constraints = new PathConstraints(2.0, 1.50, Math.toRadians(360), Math.toRadians(360));
+        
+        return AutoBuilder.followPath(path);
+        // return AutoBuilder.pathfindToPoseFlipped(cible, constraints);
+
+    }
+
+    public PathPlannerPath genererPath(Pose2d cible) {
+        PathConstraints constraints = new PathConstraints(3.0, 1.50, Math.toRadians(360), Math.toRadians(360));
         // Hyper Important : Il faut mettre la méthode "flipped" pour ajuster pour
         // RedAlliance
         // Fonction pas mentionnée dans la doc !!
@@ -359,14 +366,17 @@ public class BasePilotable extends SubsystemBase {
         Rotation2d rotation2d = getRotation2d(chassisSpeeds, cible);
         Translation2d translation2d = getPose().getTranslation();
 
-        Translation2d beginControl = translation2d.minus(new Translation2d(1.0, getPose().getRotation().rotateBy(Rotation2d.k180deg)));
+
+        //Point intial comme dans Pathplanner
+        Translation2d beginControl = getBeginControl(cible, chassisSpeeds, translation2d);
         Waypoint beginWaypoint = new Waypoint(null, translation2d, beginControl);
 
-        Translation2d endControl = cible.getTranslation().minus(new Translation2d(1.0, getRotationSelonDistance(cible)));
+
+        //Point final comme dans Pathplanner
+        Translation2d endControl = getEndControl(cible);
         Waypoint endWaypoint = new Waypoint(endControl, cible.getTranslation(), null);
 
         List<Waypoint> waypoints = List.of(beginWaypoint, endWaypoint);
-//        List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(new Pose2d(translation2d, rotation2d), cible);
 
         // Utilise le déplacement et la vitesse actuelle pour le début du path
         PathPlannerPath path = new PathPlannerPath(
@@ -374,21 +384,32 @@ public class BasePilotable extends SubsystemBase {
                 constraints,
                 new IdealStartingState(getVitesseRobot(), rotation2d),
                 new GoalEndState(0.0, cible.getRotation()));
-
-
-        return AutoBuilder.followPath(path);
-        //		 return AutoBuilder.pathfindToPoseFlipped(cible, constraints);
-
+        return path;
     }
 
-    public void resetPID(){
-        ppHolonomicDriveController.reset(getPose(),getChassisSpeeds());
+    public Translation2d getEndControl(Pose2d cible) {
+        Rotation2d rotation2d = cible.getRotation();
+        Double longueurControle = 0.1;
+        Translation2d translation2d = new Translation2d(longueurControle, rotation2d ); 
+        return cible.getTranslation().minus(translation2d);
+    }
+
+    public Translation2d getBeginControl(Pose2d cible, ChassisSpeeds chassisSpeeds, Translation2d translation2d) {
+        Double coefficientVitesse = 0.75;
+        Double vitesseRobot = getVitesseRobot().times(coefficientVitesse).magnitude();
+        Rotation2d rotation2d = getRotation2d(chassisSpeeds, cible);
+        Translation2d vecteurMouvement = new Translation2d(vitesseRobot, rotation2d);
+        return translation2d.plus(vecteurMouvement);
+    }
+
+    public void resetPID() {
+        ppHolonomicDriveController.reset(getPose(), getChassisSpeeds());
     }
 
     private Rotation2d getRotation2d(ChassisSpeeds chassisSpeeds, Pose2d cible) {
 
         // 0.25 étant une protection anti-division par 0
-        if (getVitesseRobot().in(MetersPerSecond) < 0.25) {
+        if (getVitesseRobot().in(MetersPerSecond) < 0.1) {
             return getRotationSelonDistance(cible);
         }
 

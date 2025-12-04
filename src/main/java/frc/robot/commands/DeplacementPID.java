@@ -36,6 +36,10 @@ public class DeplacementPID extends Command {
 
   @Override
   public boolean isFinished() {
-    return basePilotable.isProche(pose2d, 0.05);
+    return basePilotable.isProche(pose2d, 0.05) && isAngleProche(5.0); 
+  }
+
+  private boolean isAngleProche(double tolerance) {
+    return Math.abs(basePilotable.getAngle()-pose2d.getRotation().getDegrees()) <= tolerance;
   }
 }
