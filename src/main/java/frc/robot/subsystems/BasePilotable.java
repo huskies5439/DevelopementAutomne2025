@@ -390,7 +390,7 @@ public class BasePilotable extends SubsystemBase {
     public Translation2d getEndControl(Pose2d cible) {
         Rotation2d rotation2d = cible.getRotation();
         Double longueurControle = 0.1;
-        Translation2d translation2d = new Translation2d(longueurControle, rotation2d ); 
+        Translation2d translation2d = new Translation2d(longueurControle, rotation2d); 
         return cible.getTranslation().minus(translation2d);
     }
 
@@ -407,9 +407,8 @@ public class BasePilotable extends SubsystemBase {
     }
 
     private Rotation2d getRotation2d(ChassisSpeeds chassisSpeeds, Pose2d cible) {
-
-        // 0.25 étant une protection anti-division par 0
-        if (getVitesseRobot().in(MetersPerSecond) < 0.1) {
+        Double vitesseMinimum = 0.1; 
+        if (getVitesseRobot().in(MetersPerSecond) < vitesseMinimum) {
             return getRotationSelonDistance(cible);
         }
 
@@ -420,7 +419,8 @@ public class BasePilotable extends SubsystemBase {
         // Mets le robot a 0,0 pour trouver la distance entre le robot et la cible
         Translation2d distance = cible.minus(getPose()).getTranslation();
         // Si le robot est proche, on pointe vers la cible ou dans le sens de la cible
-        return (distance.getNorm() < 0.10) ? cible.getRotation() : distance.getAngle();
+        Double distanceMinimum = 0.10; 
+        return (distance.getNorm() < distanceMinimum) ? cible.getRotation() : distance.getAngle();
     }
 
     private LinearVelocity getVitesseRobot() {
